@@ -1,0 +1,27 @@
+# Unreal generated files
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# IDE and local workspace files
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build artifacts and logs
+*.log
+*.tmp
+*.pdb
+*.obj
+*.ilk
+*.exp
+*.lib
+
+# OS files
+Thumbs.db
+.DS_Store

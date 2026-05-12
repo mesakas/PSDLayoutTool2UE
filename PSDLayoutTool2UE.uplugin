@@ -1,0 +1,18 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "PSD Layout Tool 2 UE",
+	"Description": "Imports layered PSD files as UMG Widget Blueprints using a workflow similar to UnityPSDLayoutTool2.",
+	"Category": "Editor",
+	"CreatedBy": "ming",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Modules": [
+		{
+			"Name": "PSDLayoutTool2UE",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
