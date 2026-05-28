@@ -4,6 +4,11 @@
 
 class UWidgetBlueprint;
 
+struct FPSDWidgetImportOptions
+{
+	bool bClipLayersToCanvas = false;
+};
+
 struct FPSDWidgetImportResult
 {
 	UWidgetBlueprint* WidgetBlueprint = nullptr;
@@ -18,6 +23,15 @@ public:
 		UObject* InParent,
 		FName InName,
 		EObjectFlags Flags,
+		FPSDWidgetImportResult& OutResult,
+		FText& OutError);
+
+	static bool ImportPSDAsWidget(
+		const FString& Filename,
+		UObject* InParent,
+		FName InName,
+		EObjectFlags Flags,
+		const FPSDWidgetImportOptions& ImportOptions,
 		FPSDWidgetImportResult& OutResult,
 		FText& OutError);
 };

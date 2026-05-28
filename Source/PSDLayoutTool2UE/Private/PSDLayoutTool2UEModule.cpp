@@ -12,6 +12,7 @@
 #include "Misc/MessageDialog.h"
 #include "Misc/PackageName.h"
 #include "ObjectTools.h"
+#include "PSDLayoutTool2UEFactory.h"
 #include "PSDWidgetBuilder.h"
 #include "ToolMenus.h"
 #include "Modules/ModuleManager.h"
@@ -175,6 +176,12 @@ void FPSDLayoutTool2UEModule::ExecuteImportPSDAsWidget()
 	const FString DestinationPath = GetCurrentContentBrowserPath();
 	const FString BaseAssetName = ObjectTools::SanitizeObjectName(FPaths::GetBaseFilename(SelectedFiles[0]));
 
+	FPSDWidgetImportOptions ImportOptions;
+	if (!UPSDLayoutTool2UEFactory::ConfigureImportOptions(ImportOptions))
+	{
+		return;
+	}
+
 	FString PackageName;
 	FString AssetName;
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
@@ -189,7 +196,7 @@ void FPSDLayoutTool2UEModule::ExecuteImportPSDAsWidget()
 
 	FPSDWidgetImportResult Result;
 	FText Error;
-	if (!FPSDWidgetBuilder::ImportPSDAsWidget(SelectedFiles[0], Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional, Result, Error))
+	if (!FPSDWidgetBuilder::ImportPSDAsWidget(SelectedFiles[0], Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional, ImportOptions, Result, Error))
 	{
 		FMessageDialog::Open(EAppMsgType::Ok, Error);
 		return;

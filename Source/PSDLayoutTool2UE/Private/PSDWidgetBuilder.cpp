@@ -97,6 +97,7 @@ struct FBuildState
 	FPsdDocument Document;
 	UWidgetBlueprint* WidgetBlueprint = nullptr;
 	UWidgetTree* WidgetTree = nullptr;
+	FPSDWidgetImportOptions ImportOptions;
 	FString TextureRootPackagePath;
 	TMap<const FPsdLayer*, FLayerImportInfo> LayerInfos;
 	TMap<const FPsdLayer*, UTexture2D*> TextureCache;
@@ -112,6 +113,26 @@ static FLayoutRect ToLayoutRect(const FPsdRect& Rect)
 		static_cast<float>(Rect.Width),
 		static_cast<float>(Rect.Height)
 	};
+}
+
+static bool ClipLayoutRectToCanvas(FLayoutRect& Rect, const FVector2D& CanvasSize)
+{
+	const float Left = FMath::Max(Rect.X, 0.0f);
+	const float Top = FMath::Max(Rect.Y, 0.0f);
+	const float Right = FMath::Min(Rect.Right(), static_cast<float>(CanvasSize.X));
+	const float Bottom = FMath::Min(Rect.Bottom(), static_cast<float>(CanvasSize.Y));
+	if (Right <= Left || Bottom <= Top)
+	{
+		return false;
+	}
+
+	Rect = FLayoutRect{ Left, Top, Right - Left, Bottom - Top };
+	return true;
+}
+
+static bool ApplyImportBounds(FLayoutRect& Rect, const FPSDWidgetImportOptions& ImportOptions, const FVector2D& CanvasSize)
+{
+	return !ImportOptions.bClipLayersToCanvas || ClipLayoutRectToCanvas(Rect, CanvasSize);
 }
 
 static FLayoutRect CombineRects(const FLayoutRect& A, const FLayoutRect& B)
@@ -392,7 +413,11 @@ static void ApplyLayerLayout(UCanvasPanelSlot* Slot, const FUiLayoutContext& Par
 	Slot->SetSize(FVector2D(Rect.Width, Rect.Height));
 }
 
-static bool TryResolveLayoutRect(FLayerImportInfo& Info, const TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap)
+static bool TryResolveLayoutRect(
+	FLayerImportInfo& Info,
+	const TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap,
+	const FPSDWidgetImportOptions& ImportOptions,
+	const FVector2D& CanvasSize)
 {
 	if (!Info.Layer)
 	{
@@ -404,7 +429,7 @@ static bool TryResolveLayoutRect(FLayerImportInfo& Info, const TMap<const FPsdLa
 		if (Info.Layer->Rect.IsValid())
 		{
 			Info.LayoutRect = ToLayoutRect(Info.Layer->Rect);
-			return true;
+			return ApplyImportBounds(Info.LayoutRect, ImportOptions, CanvasSize);
 		}
 		return false;
 	}
@@ -426,13 +451,13 @@ static bool TryResolveLayoutRect(FLayerImportInfo& Info, const TMap<const FPsdLa
 	if (bHasBounds)
 	{
 		Info.LayoutRect = Combined;
-		return true;
+		return ApplyImportBounds(Info.LayoutRect, ImportOptions, CanvasSize);
 	}
 
 	if (Info.Layer->Rect.IsValid())
 	{
 		Info.LayoutRect = ToLayoutRect(Info.Layer->Rect);
-		return true;
+		return ApplyImportBounds(Info.LayoutRect, ImportOptions, CanvasSize);
 	}
 
 	return false;
@@ -442,7 +467,9 @@ static void CreateInfoRecursive(
 	const TSharedPtr<FPsdLayer>& Layer,
 	const FPsdLayer* Parent,
 	bool bParentVisible,
-	TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap)
+	TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap,
+	const FPSDWidgetImportOptions& ImportOptions,
+	const FVector2D& CanvasSize)
 {
 	if (!Layer.IsValid())
 	{
@@ -463,11 +490,11 @@ static void CreateInfoRecursive(
 
 	for (const TSharedPtr<FPsdLayer>& Child : Layer->Children)
 	{
-		CreateInfoRecursive(Child, Layer.Get(), Info.bEffectiveVisible, InfoMap);
+		CreateInfoRecursive(Child, Layer.Get(), Info.bEffectiveVisible, InfoMap, ImportOptions, CanvasSize);
 	}
 
 	FLayerImportInfo& StoredInfo = InfoMap.FindChecked(Layer.Get());
-	StoredInfo.bHasLayoutRect = TryResolveLayoutRect(StoredInfo, InfoMap);
+	StoredInfo.bHasLayoutRect = TryResolveLayoutRect(StoredInfo, InfoMap, ImportOptions, CanvasSize);
 }
 
 static FString GetStableSelfBaseName(const FLayerImportInfo& Info)
@@ -614,12 +641,16 @@ static void AssignUniqueTextureNamesForScope(const TArray<TSharedPtr<FPsdLayer>>
 	}
 }
 
-static void BuildLayerInfos(const TArray<TSharedPtr<FPsdLayer>>& Tree, TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap)
+static void BuildLayerInfos(
+	const TArray<TSharedPtr<FPsdLayer>>& Tree,
+	TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap,
+	const FPSDWidgetImportOptions& ImportOptions,
+	const FVector2D& CanvasSize)
 {
 	InfoMap.Reset();
 	for (const TSharedPtr<FPsdLayer>& Layer : Tree)
 	{
-		CreateInfoRecursive(Layer, nullptr, true, InfoMap);
+		CreateInfoRecursive(Layer, nullptr, true, InfoMap, ImportOptions, CanvasSize);
 	}
 	AssignUniqueSelfNamesRecursive(Tree, InfoMap);
 	AssignUniqueTextureNamesForScope(Tree, InfoMap);
@@ -648,6 +679,45 @@ static FSlateBrush MakeTextureBrush(UTexture2D* Texture, const FVector2D& Size)
 	return Brush;
 }
 
+static bool CropDecodedLayerToLayout(const FPsdLayer& Layer, const FLayoutRect& LayoutRect, FDecodedPsdLayer& Image)
+{
+	if (!LayoutRect.IsValid() || Image.Width <= 0 || Image.Height <= 0)
+	{
+		return false;
+	}
+
+	const int32 SourceX = FMath::RoundToInt(LayoutRect.X - static_cast<float>(Layer.Rect.X));
+	const int32 SourceY = FMath::RoundToInt(LayoutRect.Y - static_cast<float>(Layer.Rect.Y));
+	const int32 CropWidth = FMath::RoundToInt(LayoutRect.Width);
+	const int32 CropHeight = FMath::RoundToInt(LayoutRect.Height);
+	if (SourceX < 0 || SourceY < 0 || CropWidth <= 0 || CropHeight <= 0 ||
+		SourceX + CropWidth > Image.Width || SourceY + CropHeight > Image.Height)
+	{
+		return false;
+	}
+
+	if (SourceX == 0 && SourceY == 0 && CropWidth == Image.Width && CropHeight == Image.Height)
+	{
+		return true;
+	}
+
+	TArray<uint8> CroppedBGRA;
+	CroppedBGRA.SetNumZeroed(CropWidth * CropHeight * 4);
+	const int32 SourceStride = Image.Width * 4;
+	const int32 DestStride = CropWidth * 4;
+	for (int32 Row = 0; Row < CropHeight; ++Row)
+	{
+		const int32 SourceIndex = ((SourceY + Row) * SourceStride) + (SourceX * 4);
+		const int32 DestIndex = Row * DestStride;
+		FMemory::Memcpy(CroppedBGRA.GetData() + DestIndex, Image.BGRA.GetData() + SourceIndex, DestStride);
+	}
+
+	Image.Width = CropWidth;
+	Image.Height = CropHeight;
+	Image.BGRA = MoveTemp(CroppedBGRA);
+	return true;
+}
+
 static UTexture2D* CreateTextureAsset(FBuildState& State, const FString& PackagePath, const FLayerImportInfo& Info)
 {
 	if (UTexture2D** Cached = State.TextureCache.Find(Info.Layer))
@@ -660,9 +730,19 @@ static UTexture2D* CreateTextureAsset(FBuildState& State, const FString& Package
 		return nullptr;
 	}
 
+	if (State.ImportOptions.bClipLayersToCanvas && (!Info.bHasLayoutRect || !Info.LayoutRect.IsValid()))
+	{
+		return nullptr;
+	}
+
 	FDecodedPsdLayer Decoded;
 	FString DecodeError;
 	if (!State.Document.DecodeLayer(*Info.Layer, Decoded, DecodeError))
+	{
+		return nullptr;
+	}
+
+	if (State.ImportOptions.bClipLayersToCanvas && !CropDecodedLayerToLayout(*Info.Layer, Info.LayoutRect, Decoded))
 	{
 		return nullptr;
 	}
@@ -817,7 +897,7 @@ static UImage* CreateImageWidget(FBuildState& State, UCanvasPanel* Parent, const
 
 	UImage* Image = State.WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), MakeWidgetName(State.WidgetTree, Info.UniqueSelfName + TEXT("_Image")));
 	Image->SetBrushFromTexture(Texture, true);
-	Image->SetDesiredSizeOverride(FVector2D(Info.Layer->Rect.Width, Info.Layer->Rect.Height));
+	Image->SetDesiredSizeOverride(Info.LayoutRect.Size());
 	ScaleBox->SetContent(Image);
 
 	UCanvasPanelSlot* Slot = Parent->AddChildToCanvas(ScaleBox);
@@ -858,7 +938,12 @@ static void CreateButtonWidget(FBuildState& State, const TSharedPtr<FPsdLayer>& 
 		if (!ChildInfo.bFolderLike && !Child->bIsTextLayer && ChildInfo.ButtonRole != EButtonChildRole::None && ChildInfo.ButtonRole != EButtonChildRole::TextImage)
 		{
 			UTexture2D* Texture = CreateTextureAsset(State, PackagePath, ChildInfo);
-			FSlateBrush Brush = MakeTextureBrush(Texture, FVector2D(Child->Rect.Width, Child->Rect.Height));
+			if (!Texture)
+			{
+				continue;
+			}
+
+			FSlateBrush Brush = MakeTextureBrush(Texture, ChildInfo.LayoutRect.Size());
 			switch (ChildInfo.ButtonRole)
 			{
 			case EButtonChildRole::Default: Style.SetNormal(Brush); break;
@@ -933,6 +1018,15 @@ static void ExportLayer(FBuildState& State, const TSharedPtr<FPsdLayer>& Layer, 
 		return;
 	}
 
+	if (!Info.bHasLayoutRect)
+	{
+		if (ShouldLayerEmitTexture(Info))
+		{
+			CreateTextureAsset(State, PackagePath, Info);
+		}
+		return;
+	}
+
 	if (Layer->bIsTextLayer)
 	{
 		CreateTextWidget(State, Parent, ParentContext, Info);
@@ -960,6 +1054,19 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	FPSDWidgetImportResult& OutResult,
 	FText& OutError)
 {
+	FPSDWidgetImportOptions ImportOptions;
+	return ImportPSDAsWidget(Filename, InParent, InName, Flags, ImportOptions, OutResult, OutError);
+}
+
+bool FPSDWidgetBuilder::ImportPSDAsWidget(
+	const FString& Filename,
+	UObject* InParent,
+	FName InName,
+	EObjectFlags Flags,
+	const FPSDWidgetImportOptions& ImportOptions,
+	FPSDWidgetImportResult& OutResult,
+	FText& OutError)
+{
 	if (!InParent)
 	{
 		OutError = FText::FromString(TEXT("PSD import requires a valid destination package."));
@@ -967,6 +1074,7 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	}
 
 	FBuildState State;
+	State.ImportOptions = ImportOptions;
 	FString LoadError;
 	if (!State.Document.Load(Filename, LoadError))
 	{
@@ -975,7 +1083,8 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	}
 
 	TArray<TSharedPtr<FPsdLayer>> Tree = FPsdDocument::BuildLayerTree(State.Document.Layers);
-	BuildLayerInfos(Tree, State.LayerInfos);
+	const FVector2D RootSize(static_cast<float>(State.Document.Width), static_cast<float>(State.Document.Height));
+	BuildLayerInfos(Tree, State.LayerInfos, State.ImportOptions, RootSize);
 
 	const FString WidgetAssetName = SanitizeName(InName.ToString(), FPaths::GetBaseFilename(Filename));
 	const FString DestinationPackageName = InParent->GetOutermost()->GetName();
@@ -1017,7 +1126,6 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	State.WidgetBlueprint->OnVariableAdded(RootSizeBox->GetFName());
 	State.WidgetBlueprint->OnVariableAdded(RootCanvas->GetFName());
 
-	const FVector2D RootSize(static_cast<float>(State.Document.Width), static_cast<float>(State.Document.Height));
 	const FUiLayoutContext RootContext{
 		FLayoutRect{ 0.0f, 0.0f, static_cast<float>(RootSize.X), static_cast<float>(RootSize.Y) },
 		RootSize,
