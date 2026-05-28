@@ -86,6 +86,8 @@ Tools > PSD Layout Tool 2 UE > Import PSD as Widget
 - 一个 `Widget Blueprint`。
 - 一个 `<WidgetName>_Layers` 目录，里面包含导出的 `Texture2D` 图层贴图。
 
+导入选项中可以勾选 `Only import layer assets`。启用后只会生成 `<WidgetName>_Layers` 中的图层贴图资源，不会生成 `Widget Blueprint`。
+
 如果拖入 PSD 后仍然生成普通 `Texture`，说明 UE 的默认 PSD 导入器仍在接管。可以在 Output Log 控制台输入：
 
 ```text
@@ -223,4 +225,3 @@ Source/
 - `PSDWidgetBuilder.*`：Widget Blueprint、Canvas、Image、TextBlock、Button 和 Texture2D 生成。
 - `PSDLayoutTool2UEFactory.*`：Content Browser 导入工厂。
 - `PSDLayoutTool2UEModule.*`：插件模块、菜单入口和 PSD Interchange 导入开关处理。
-

@@ -30,4 +30,7 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "PSD Layout")
 	bool bClipLayersToCanvas = false;
+
+	UPROPERTY(EditAnywhere, Category = "PSD Layout")
+	bool bImportAssetsOnly = false;
 };

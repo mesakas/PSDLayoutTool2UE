@@ -202,11 +202,22 @@ void FPSDLayoutTool2UEModule::ExecuteImportPSDAsWidget()
 		return;
 	}
 
-	if (Result.WidgetBlueprint && GEditor)
+	if (GEditor)
 	{
 		TArray<UObject*> ObjectsToSync;
-		ObjectsToSync.Add(Result.WidgetBlueprint);
-		GEditor->SyncBrowserToObjects(ObjectsToSync);
+		if (Result.WidgetBlueprint)
+		{
+			ObjectsToSync.Add(Result.WidgetBlueprint);
+		}
+		else
+		{
+			ObjectsToSync.Append(Result.AdditionalAssets);
+		}
+
+		if (ObjectsToSync.Num() > 0)
+		{
+			GEditor->SyncBrowserToObjects(ObjectsToSync);
+		}
 	}
 }
 

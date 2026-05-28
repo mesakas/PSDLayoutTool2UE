@@ -7,6 +7,7 @@ class UWidgetBlueprint;
 struct FPSDWidgetImportOptions
 {
 	bool bClipLayersToCanvas = false;
+	bool bImportAssetsOnly = false;
 };
 
 struct FPSDWidgetImportResult

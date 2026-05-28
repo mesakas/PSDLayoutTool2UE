@@ -594,6 +594,11 @@ static bool ShouldButtonChildEmitTexture(const FLayerImportInfo& Info)
 	return !Info.bEffectiveVisible && ShouldLayerEmitTexture(Info);
 }
 
+static bool ShouldAssetsOnlyLayerEmitTexture(const FLayerImportInfo& Info)
+{
+	return Info.Layer && !Info.bFolderLike && Info.Layer->Rect.IsValid();
+}
+
 static void AssignUniqueTextureNamesForScope(const TArray<TSharedPtr<FPsdLayer>>& Siblings, TMap<const FPsdLayer*, FLayerImportInfo>& InfoMap)
 {
 	TArray<const FPsdLayer*> Emitters;
@@ -837,7 +842,7 @@ static void ExportLayerTexturesOnly(FBuildState& State, const TSharedPtr<FPsdLay
 	const FLayerImportInfo& Info = State.LayerInfos.FindChecked(Layer.Get());
 	if (Info.bFolderLike)
 	{
-		const FString ChildPath = Info.bButtonGroup ? PackagePath : PackagePath / Info.UniqueSelfName;
+		const FString ChildPath = State.ImportOptions.bImportAssetsOnly || !Info.bButtonGroup ? PackagePath / Info.UniqueSelfName : PackagePath;
 		for (const TSharedPtr<FPsdLayer>& Child : Layer->Children)
 		{
 			ExportLayerTexturesOnly(State, Child, ChildPath);
@@ -845,7 +850,10 @@ static void ExportLayerTexturesOnly(FBuildState& State, const TSharedPtr<FPsdLay
 		return;
 	}
 
-	if (ShouldLayerEmitTexture(Info) || ShouldButtonChildEmitTexture(Info))
+	const bool bShouldExportTexture = State.ImportOptions.bImportAssetsOnly
+		? ShouldAssetsOnlyLayerEmitTexture(Info)
+		: ShouldLayerEmitTexture(Info) || ShouldButtonChildEmitTexture(Info);
+	if (bShouldExportTexture)
 	{
 		CreateTextureAsset(State, PackagePath, Info);
 	}
@@ -1090,6 +1098,24 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	const FString DestinationPackageName = InParent->GetOutermost()->GetName();
 	const FString DestinationPath = FPackageName::GetLongPackagePath(DestinationPackageName);
 	State.TextureRootPackagePath = DestinationPath / (WidgetAssetName + TEXT("_Layers"));
+
+	if (State.ImportOptions.bImportAssetsOnly)
+	{
+		for (const TSharedPtr<FPsdLayer>& Layer : Tree)
+		{
+			ExportLayerTexturesOnly(State, Layer, State.TextureRootPackagePath);
+		}
+
+		if (State.AdditionalAssets.Num() == 0)
+		{
+			OutError = FText::FromString(TEXT("PSD import did not create any layer assets."));
+			return false;
+		}
+
+		OutResult.WidgetBlueprint = nullptr;
+		OutResult.AdditionalAssets = MoveTemp(State.AdditionalAssets);
+		return true;
+	}
 
 	State.WidgetBlueprint = Cast<UWidgetBlueprint>(FKismetEditorUtilities::CreateBlueprint(
 		UUserWidget::StaticClass(),

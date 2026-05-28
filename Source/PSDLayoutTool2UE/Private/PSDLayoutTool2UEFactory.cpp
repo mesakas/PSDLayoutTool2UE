@@ -41,12 +41,15 @@ bool UPSDLayoutTool2UEFactory::ConfigureProperties()
 {
 	FPSDWidgetImportOptions ImportOptions;
 	ImportOptions.bClipLayersToCanvas = bClipLayersToCanvas;
+	ImportOptions.bImportAssetsOnly = bImportAssetsOnly;
 	if (!ConfigureImportOptions(ImportOptions))
 	{
 		return false;
 	}
 
 	bClipLayersToCanvas = ImportOptions.bClipLayersToCanvas;
+	bImportAssetsOnly = ImportOptions.bImportAssetsOnly;
+	bEditAfterNew = !bImportAssetsOnly;
 	return true;
 }
 
@@ -90,6 +93,22 @@ bool UPSDLayoutTool2UEFactory::ConfigureImportOptions(FPSDWidgetImportOptions& I
 						SNew(STextBlock)
 						.Text(LOCTEXT("ClipLayersToCanvasLabel", "Clip each layer to the PSD canvas"))
 						.ToolTipText(LOCTEXT("ClipLayersToCanvasTooltip", "When enabled, pixels and widget layout outside the PSD document canvas are discarded during import."))
+					]
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+				[
+					SNew(SCheckBox)
+					.IsChecked(InOutOptions.bImportAssetsOnly ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+					.OnCheckStateChanged_Lambda([&InOutOptions](ECheckBoxState NewState)
+					{
+						InOutOptions.bImportAssetsOnly = NewState == ECheckBoxState::Checked;
+					})
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("ImportAssetsOnlyLabel", "Only import layer assets"))
+						.ToolTipText(LOCTEXT("ImportAssetsOnlyTooltip", "When enabled, the importer exports layer textures only and skips Widget Blueprint generation."))
 					]
 				]
 				+ SVerticalBox::Slot()
@@ -148,6 +167,7 @@ UObject* UPSDLayoutTool2UEFactory::FactoryCreateFile(
 
 	FPSDWidgetImportOptions ImportOptions;
 	ImportOptions.bClipLayersToCanvas = bClipLayersToCanvas;
+	ImportOptions.bImportAssetsOnly = bImportAssetsOnly;
 
 	FPSDWidgetImportResult Result;
 	FText Error;
@@ -162,7 +182,7 @@ UObject* UPSDLayoutTool2UEFactory::FactoryCreateFile(
 	}
 
 	AdditionalImportedObjects.Append(Result.AdditionalAssets);
-	return Result.WidgetBlueprint;
+	return Result.WidgetBlueprint ? Result.WidgetBlueprint : (Result.AdditionalAssets.Num() > 0 ? Result.AdditionalAssets[0] : nullptr);
 }
 
 #undef LOCTEXT_NAMESPACE
