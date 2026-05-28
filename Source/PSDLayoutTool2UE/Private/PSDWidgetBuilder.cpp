@@ -1001,13 +1001,19 @@ bool FPSDWidgetBuilder::ImportPSDAsWidget(
 	State.WidgetBlueprint->Modify();
 	State.WidgetTree->Modify();
 
-	USizeBox* RootSizeBox = State.WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("ROOT"));
+	UScaleBox* RootScaleBox = State.WidgetTree->ConstructWidget<UScaleBox>(UScaleBox::StaticClass(), TEXT("ROOT"));
+	RootScaleBox->SetStretch(EStretch::ScaleToFit);
+	RootScaleBox->SetStretchDirection(EStretchDirection::Both);
+
+	USizeBox* RootSizeBox = State.WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SizeBox"));
 	RootSizeBox->SetWidthOverride(static_cast<float>(State.Document.Width));
 	RootSizeBox->SetHeightOverride(static_cast<float>(State.Document.Height));
 
 	UCanvasPanel* RootCanvas = State.WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Canvas"));
 	RootSizeBox->SetContent(RootCanvas);
-	State.WidgetTree->RootWidget = RootSizeBox;
+	RootScaleBox->SetContent(RootSizeBox);
+	State.WidgetTree->RootWidget = RootScaleBox;
+	State.WidgetBlueprint->OnVariableAdded(RootScaleBox->GetFName());
 	State.WidgetBlueprint->OnVariableAdded(RootSizeBox->GetFName());
 	State.WidgetBlueprint->OnVariableAdded(RootCanvas->GetFName());
 
